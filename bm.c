@@ -83,7 +83,7 @@ ssize_t bm_read(struct file *f, char __user *buf, size_t count, loff_t *offp)
 
 	int status = i2c_smbus_read_byte_data(bm_client, MMA8452_STATUS);
 
-	if(status & (1<<3)) {		
+	if(status & (1 << 3)) {		
 		int x = 0;
 		int y = 0;
 		int z = 0;		
@@ -128,7 +128,11 @@ ssize_t bm_read(struct file *f, char __user *buf, size_t count, loff_t *offp)
 		*pout++ = 0x0A;		
 
 		/*******************************************************/
+		
+		if (pos + count > sizeof(str_data))
+			count = sizeof(str_data) - pos;
 	}
+	else count = 0;
 
 	/** Initial Debug (verification of activation by reading status and coordinates) **/	
 	
@@ -149,12 +153,10 @@ ssize_t bm_read(struct file *f, char __user *buf, size_t count, loff_t *offp)
 	*
 	*/
 
-	if (pos + count > sizeof(str_data))
-		count = sizeof(str_data) - pos;
 	if (copy_to_user(buf, str_data + pos, count))
 		return -EFAULT;
 	*offp += count;
-
+	
 	return count;
 }
 
