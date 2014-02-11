@@ -76,20 +76,62 @@ static struct i2c_client *bm_client;
 
 ssize_t bm_read(struct file *f, char __user *buf, size_t count, loff_t *offp) 
 {	
-	unsigned char data[6];		
+	unsigned char data[6];
+	short converted_data[3];		
+	char str_data[15];	
 	unsigned long pos = *offp;	
 
 	int status = i2c_smbus_read_byte_data(bm_client, MMA8452_STATUS);
 
 	if(status & (1<<3)) {		
+		int x = 0;
+		int y = 0;
+		int z = 0;		
+
 		data[0] = i2c_smbus_read_byte_data(bm_client, MMA8452_OUT_X_MSB);
 		data[1] = i2c_smbus_read_byte_data(bm_client, MMA8452_OUT_X_LSB);
 		data[2] = i2c_smbus_read_byte_data(bm_client, MMA8452_OUT_Y_MSB);
 		data[3] = i2c_smbus_read_byte_data(bm_client, MMA8452_OUT_Y_LSB);
 		data[4] = i2c_smbus_read_byte_data(bm_client, MMA8452_OUT_Z_MSB);
 		data[5] = i2c_smbus_read_byte_data(bm_client, MMA8452_OUT_Z_LSB);
+	
+		x = ((data[0]) << 4) | data[1] >> 4;
+		y = ((data[2]) << 4) | data[3] >> 4;
+		z = ((data[4]) << 4) | data[5] >> 4;
+
+		if(x&0x800)
+			x -= 4096; 	
+		if(y&0x800)
+			y -= 4096; 	
+		if(z&0x800)
+			z -= 4096;
+
+		converted_data[0] = (720 * 40 * (s16) x) / 4096 / 10;           
+		converted_data[1] = - ((720 * 40 * (s16) y) / 4096 / 10);
+		converted_data[2] = - ((720 * 40 * (s16) z) / 4096 / 10);
+
+		/** Short to hex conversion for human-readable format **/
+		/*******************************************************/
+	
+		const char *hex = "0123456789ABCDEF";
+		char *pin = converted_data;
+		char *pout = str_data;
+		int i = 0;
+		for(; i < sizeof(converted_data) - 1; ++i){
+        		*pout++ = hex[(*pin >> 4) & 0xF];
+        		*pout++ = hex[(*pin++) & 0xF];
+			if(i % 2)			
+				*pout++ = ':';
+    		}
+    		*pout++ = hex[(*pin >> 4) & 0xF];
+    		*pout++ = hex[(*pin) & 0xF];
+		*pout++ = 0x0A;		
+
+		/*******************************************************/
 	}
 
+	/** Initial Debug (verification of activation by reading status and coordinates) **/	
+	
 	/*
 	 *
 	 *
@@ -107,9 +149,9 @@ ssize_t bm_read(struct file *f, char __user *buf, size_t count, loff_t *offp)
 	*
 	*/
 
-	if (pos + count > sizeof(data))
-		count = sizeof(data) - pos;
-	if (copy_to_user(buf, data + pos, count))
+	if (pos + count > sizeof(str_data))
+		count = sizeof(str_data) - pos;
+	if (copy_to_user(buf, str_data + pos, count))
 		return -EFAULT;
 	*offp += count;
 
@@ -141,7 +183,7 @@ static int bm_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	i2c_smbus_write_byte_data(client, MMA8452_CTRL_REG2, 0x00); // Device activation in normal mode (power)
 	i2c_smbus_write_byte_data(client, MMA8452_CTRL_REG4, 0x00); // Disable all interrupts	
 	
-	/** Initial Debug (verification of activation by reading status) **/
+	/** Initial Debug (verification of activation by reading status and coordinates) **/
 	
 	/*
 	 *
