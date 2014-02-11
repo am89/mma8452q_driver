@@ -88,6 +88,8 @@ ssize_t bm_read(struct file *f, char __user *buf, size_t count, loff_t *offp)
 		int y = 0;
 		int z = 0;		
 
+		/** Reading row data from registers **/			
+				
 		data[0] = i2c_smbus_read_byte_data(bm_client, MMA8452_OUT_X_MSB);
 		data[1] = i2c_smbus_read_byte_data(bm_client, MMA8452_OUT_X_LSB);
 		data[2] = i2c_smbus_read_byte_data(bm_client, MMA8452_OUT_Y_MSB);
@@ -95,9 +97,13 @@ ssize_t bm_read(struct file *f, char __user *buf, size_t count, loff_t *offp)
 		data[4] = i2c_smbus_read_byte_data(bm_client, MMA8452_OUT_Z_MSB);
 		data[5] = i2c_smbus_read_byte_data(bm_client, MMA8452_OUT_Z_LSB);
 	
+		/** Assembling data read from registers (MSB + LSB, 12-bit sample) **/
+
 		x = ((data[0]) << 4) | data[1] >> 4;
 		y = ((data[2]) << 4) | data[3] >> 4;
 		z = ((data[4]) << 4) | data[5] >> 4;
+
+		/** 12-bit samples are expressed as 2's complement number **/
 
 		if(x&0x800)
 			x -= 4096; 	
@@ -105,6 +111,8 @@ ssize_t bm_read(struct file *f, char __user *buf, size_t count, loff_t *offp)
 			y -= 4096; 	
 		if(z&0x800)
 			z -= 4096;
+
+		/** Conversion to actual output data **/
 
 		converted_data[0] = (720 * 40 * (s16) x) / 4096 / 10;           
 		converted_data[1] = - ((720 * 40 * (s16) y) / 4096 / 10);
@@ -134,7 +142,7 @@ ssize_t bm_read(struct file *f, char __user *buf, size_t count, loff_t *offp)
 	}
 	else count = 0;
 
-	/** Initial Debug (verification of activation by reading status and coordinates) **/	
+	/** Debug (verification of activation by reading status and coordinates) **/	
 	
 	/*
 	 *
@@ -177,7 +185,9 @@ static int bm_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	printk(KERN_INFO "BM: Chip ID is 0x%x\n", i2c_smbus_read_byte_data(client, MMA8452_WHO_AM_I));
 
 	/** MMA8452 chip initialization **/
+	
 	// TODO: check write return values
+
 	i2c_smbus_write_byte_data(client, MMA8452_CTRL_REG2, 0x40); // Device reset
 	mdelay(20); // Waiting for reset
 	i2c_smbus_write_byte_data(client, MMA8452_CTRL_REG1, 0x39); // Output data rate set with period 640ms
@@ -185,7 +195,7 @@ static int bm_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	i2c_smbus_write_byte_data(client, MMA8452_CTRL_REG2, 0x00); // Device activation in normal mode (power)
 	i2c_smbus_write_byte_data(client, MMA8452_CTRL_REG4, 0x00); // Disable all interrupts	
 	
-	/** Initial Debug (verification of activation by reading status and coordinates) **/
+	/** Debug (verification of activation by reading status and coordinates) **/
 	
 	/*
 	 *
@@ -209,6 +219,7 @@ static int bm_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	bm_client = client;
 
 	// TODO: check registration return value
+	
 	misc_register(&bm_device);
 
 	return 0;
@@ -216,6 +227,7 @@ static int bm_probe(struct i2c_client *client, const struct i2c_device_id *id)
 
 static int bm_remove(struct i2c_client *client) 
 {
+	misc_deregister(&bm_device);	
 	return 0;
 }
 
