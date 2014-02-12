@@ -168,7 +168,6 @@ ssize_t bm_read(struct file *f, char __user *buf, size_t count, loff_t *offp)
 	return count;
 }
 
-
 static struct file_operations bm_fops = {
         .owner = THIS_MODULE,
 	.read = bm_read,
@@ -185,16 +184,16 @@ static int bm_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	printk(KERN_INFO "BM: Chip ID is 0x%x\n", i2c_smbus_read_byte_data(client, MMA8452_WHO_AM_I));
 
 	/** MMA8452 chip initialization **/
-	
-	// TODO: check write return values
 
-	i2c_smbus_write_byte_data(client, MMA8452_CTRL_REG2, 0x40); // Device reset
+	int result = 0;
+
+	result |= i2c_smbus_write_byte_data(client, MMA8452_CTRL_REG2, 0x40); // Device reset
 	mdelay(20); // Waiting for reset
-	i2c_smbus_write_byte_data(client, MMA8452_CTRL_REG1, 0x39); // Output data rate set with period 640ms
-	i2c_smbus_write_byte_data(client, MMA8452_XYZ_DATA_CFG, MODE_2G); // Full scale mode = 2g
-	i2c_smbus_write_byte_data(client, MMA8452_CTRL_REG2, 0x00); // Device activation in normal mode (power)
-	i2c_smbus_write_byte_data(client, MMA8452_CTRL_REG4, 0x00); // Disable all interrupts	
-	
+	result |= i2c_smbus_write_byte_data(client, MMA8452_CTRL_REG1, 0x39); // Output data rate set with period 640ms
+	result |= i2c_smbus_write_byte_data(client, MMA8452_XYZ_DATA_CFG, MODE_2G); // Full scale mode = 2g
+	result |= i2c_smbus_write_byte_data(client, MMA8452_CTRL_REG2, 0x00); // Device activation in normal mode (power)
+	result |= i2c_smbus_write_byte_data(client, MMA8452_CTRL_REG4, 0x00); // Disable all interrupts	
+ 
 	/** Debug (verification of activation by reading status and coordinates) **/
 	
 	/*
@@ -216,13 +215,17 @@ static int bm_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	*	
 	*/
 
-	bm_client = client;
+	if (result < 0) 
+		printk(KERN_ERR "BM: Chip initialization failed, %s, error = %d\n", __FUNCTION__, result);
+	else {
+		bm_client = client;
 
-	// TODO: check registration return value
+		// TODO: check registration return value
 	
-	misc_register(&bm_device);
+		misc_register(&bm_device);
+	}
 
-	return 0;
+	return result;
 } 
 
 static int bm_remove(struct i2c_client *client) 
