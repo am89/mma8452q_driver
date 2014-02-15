@@ -222,7 +222,7 @@ static int bm_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	
 		result = misc_register(&bm_device);
 
-		if (result < 0) 
+		if (result) 
 			printk(KERN_ERR "BM: Device registration failed, %s, error = %d\n", __FUNCTION__, result);
 	}
 
