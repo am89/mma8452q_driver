@@ -219,10 +219,11 @@ static int bm_probe(struct i2c_client *client, const struct i2c_device_id *id)
 		printk(KERN_ERR "BM: Chip initialization failed, %s, error = %d\n", __FUNCTION__, result);
 	else {
 		bm_client = client;
-
-		// TODO: check registration return value
 	
-		misc_register(&bm_device);
+		result = misc_register(&bm_device);
+
+		if (result < 0) 
+			printk(KERN_ERR "BM: Device registration failed, %s, error = %d\n", __FUNCTION__, result);
 	}
 
 	return result;
