@@ -1,3 +1,3 @@
-Custom driver for mma8452q accellerometer
+Custom driver for mma8452q accelerometer
 
 - Paths in Makefile are local

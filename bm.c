@@ -1,9 +1,9 @@
-#include <linux/delay.h>
-#include <linux/fs.h>
-#include <linux/i2c.h>
-#include <linux/init.h>
 #include <linux/module.h>
+#include <linux/init.h>
+#include <linux/delay.h>
 #include <linux/miscdevice.h>
+#include <linux/i2c.h>
+#include <linux/fs.h>
 #include <linux/uaccess.h>
 
 #define MMA8452_DRV_NAME "gs_mma8452"
@@ -72,96 +72,41 @@ enum {
 	MODE_8G,
 };
 
+struct bm_data {
+	unsigned char raw_data[6];
+	short out_data[3];
+};
+
+static struct bm_data *data;
 static struct i2c_client *bm_client;
 
 ssize_t bm_read(struct file *f, char __user *buf, size_t count, loff_t *offp) 
 {	
-	unsigned char data[6];
-	short converted_data[3];		
-	char str_data[15];	
 	unsigned long pos = *offp;	
+	int i, j = 0, status = i2c_smbus_read_byte_data(bm_client, MMA8452_STATUS);
 
-	int status = i2c_smbus_read_byte_data(bm_client, MMA8452_STATUS);
+	if(!(status & (1 << 3)))
+		count = 0; 
+	else {
 
-	if(status & (1 << 3)) {		
-		int x = 0;
-		int y = 0;
-		int z = 0;		
+		/** Reading raw data from registers **/			
 
-		/** Reading row data from registers **/			
-				
-		data[0] = i2c_smbus_read_byte_data(bm_client, MMA8452_OUT_X_MSB);
-		data[1] = i2c_smbus_read_byte_data(bm_client, MMA8452_OUT_X_LSB);
-		data[2] = i2c_smbus_read_byte_data(bm_client, MMA8452_OUT_Y_MSB);
-		data[3] = i2c_smbus_read_byte_data(bm_client, MMA8452_OUT_Y_LSB);
-		data[4] = i2c_smbus_read_byte_data(bm_client, MMA8452_OUT_Z_MSB);
-		data[5] = i2c_smbus_read_byte_data(bm_client, MMA8452_OUT_Z_LSB);
+		for(i = 0; i < 6; i++)
+			data -> raw_data[i] = i2c_smbus_read_byte_data(bm_client, MMA8452_OUT_X_MSB + i);		
 	
-		/** Assembling data read from registers (MSB + LSB, 12-bit sample) **/
+		/** Assembling data read from registers (MSB + LSB, 12-bit sample) and adjust negative values **/
 
-		x = ((data[0]) << 4) | data[1] >> 4;
-		y = ((data[2]) << 4) | data[3] >> 4;
-		z = ((data[4]) << 4) | data[5] >> 4;
-
-		/** 12-bit samples are expressed as 2's complement number **/
-
-		if(x&0x800)
-			x -= 4096; 	
-		if(y&0x800)
-			y -= 4096; 	
-		if(z&0x800)
-			z -= 4096;
-
-		/** Conversion to actual output data **/
-
-		converted_data[0] = (720 * 40 * (s16) x) / 4096 / 10;           
-		converted_data[1] = - ((720 * 40 * (s16) y) / 4096 / 10);
-		converted_data[2] = - ((720 * 40 * (s16) z) / 4096 / 10);
-
-		/** Short to hex conversion for human-readable format **/
-		/*******************************************************/
-	
-		const char *hex = "0123456789ABCDEF";
-		char *pin = converted_data;
-		char *pout = str_data;
-		int i = 0;
-		for(; i < sizeof(converted_data) - 1; ++i){
-        		*pout++ = hex[(*pin >> 4) & 0xF];
-        		*pout++ = hex[(*pin++) & 0xF];
-			if(i % 2)			
-				*pout++ = ':';
-    		}
-    		*pout++ = hex[(*pin >> 4) & 0xF];
-    		*pout++ = hex[(*pin) & 0xF];
-		*pout++ = 0x0A;		
-
-		/*******************************************************/
+		for(i = 0; i < 3; i++) {
+			data -> out_data[i] = ((data -> raw_data[j]) << 8) | (data -> raw_data[j + 1]);
+			data -> out_data[i] = (data -> out_data[i]) / 16;
+			j += 2;
+		}
 		
-		if (pos + count > sizeof(str_data))
-			count = sizeof(str_data) - pos;
+		if(pos + count > sizeof(data -> out_data))
+			count = sizeof(data -> out_data) - pos;
 	}
-	else count = 0;
 
-	/** Debug (verification of activation by reading status and coordinates) **/	
-	
-	/*
-	 *
-	 *
-
-	printk(KERN_INFO "BM: STATUS is %x\n", i2c_smbus_read_byte_data(bm_client, MMA8452_STATUS));
-
-	printk(KERN_INFO "BM: X_MSB is %x\n", i2c_smbus_read_byte_data(bm_client, MMA8452_OUT_X_MSB));
-	printk(KERN_INFO "BM: X_LSB is %x\n", i2c_smbus_read_byte_data(bm_client, MMA8452_OUT_X_LSB));
-	printk(KERN_INFO "BM: Y_MSB is %x\n", i2c_smbus_read_byte_data(bm_client, MMA8452_OUT_Y_MSB));
-	printk(KERN_INFO "BM: Y_LSB is %x\n", i2c_smbus_read_byte_data(bm_client, MMA8452_OUT_Y_LSB));
-	printk(KERN_INFO "BM: Z_MSB is %x\n", i2c_smbus_read_byte_data(bm_client, MMA8452_OUT_Z_MSB));
-	printk(KERN_INFO "BM: Z_LSB is %x\n", i2c_smbus_read_byte_data(bm_client, MMA8452_OUT_Z_LSB));
-
-	*
-	*
-	*/
-
-	if (copy_to_user(buf, str_data + pos, count))
+	if(copy_to_user(buf, (data -> out_data) + pos, count))
 		return -EFAULT;
 	*offp += count;
 	
@@ -180,58 +125,38 @@ static struct miscdevice bm_device = {
 };
 
 static int bm_probe(struct i2c_client *client, const struct i2c_device_id *id)
-{
+{	
+	int result = 0;
+
 	printk(KERN_INFO "BM: Chip ID is 0x%x\n", i2c_smbus_read_byte_data(client, MMA8452_WHO_AM_I));
 
 	/** MMA8452 chip initialization **/
 
-	int result = 0;
-
-	result |= i2c_smbus_write_byte_data(client, MMA8452_CTRL_REG2, 0x40); // Device reset
+	if((result = i2c_smbus_write_byte_data(client, MMA8452_CTRL_REG2, 0x40) < 0)) // Device reset
+		return result;
 	mdelay(20); // Waiting for reset
-	result |= i2c_smbus_write_byte_data(client, MMA8452_CTRL_REG1, 0x39); // Output data rate set with period 640ms
-	result |= i2c_smbus_write_byte_data(client, MMA8452_XYZ_DATA_CFG, MODE_2G); // Full scale mode = 2g
-	result |= i2c_smbus_write_byte_data(client, MMA8452_CTRL_REG2, 0x00); // Device activation in normal mode (power)
-	result |= i2c_smbus_write_byte_data(client, MMA8452_CTRL_REG4, 0x00); // Disable all interrupts	
+	if((result = i2c_smbus_write_byte_data(client, MMA8452_CTRL_REG1, 0x39)) < 0) // Output data rate set with period 640ms
+		return result;
+	if((result = i2c_smbus_write_byte_data(client, MMA8452_XYZ_DATA_CFG, MODE_2G)) < 0) // Full scale mode = 2g
+		return result;
+	if((result = i2c_smbus_write_byte_data(client, MMA8452_CTRL_REG2, 0x00)) < 0) // Device activation in normal mode (power)
+		return result;
+	if((result = i2c_smbus_write_byte_data(client, MMA8452_CTRL_REG4, 0x00)) < 0) // Disable all interrupts	
+		return result;
  
-	/** Debug (verification of activation by reading status and coordinates) **/
-	
-	/*
-	 *
-	 *
-	
-	mdelay(5000);
+	if ((result = misc_register(&bm_device)) < 0)  
+		return result;
 
-	printk(KERN_INFO "BM: STATUS is %x\n", i2c_smbus_read_byte_data(client, MMA8452_STATUS));
-
-	printk(KERN_INFO "BM: X_MSB is %x\n", i2c_smbus_read_byte_data(client, MMA8452_OUT_X_MSB));
-	printk(KERN_INFO "BM: X_LSB is %x\n", i2c_smbus_read_byte_data(client, MMA8452_OUT_X_LSB));
-	printk(KERN_INFO "BM: Y_MSB is %x\n", i2c_smbus_read_byte_data(client, MMA8452_OUT_Y_MSB));
-	printk(KERN_INFO "BM: Y_LSB is %x\n", i2c_smbus_read_byte_data(client, MMA8452_OUT_Y_LSB));
-	printk(KERN_INFO "BM: Z_MSB is %x\n", i2c_smbus_read_byte_data(client, MMA8452_OUT_Z_MSB));
-	printk(KERN_INFO "BM: Z_LSB is %x\n", i2c_smbus_read_byte_data(client, MMA8452_OUT_Z_LSB));
-	
-	*	
-	*	
-	*/
-
-	if (result < 0) 
-		printk(KERN_ERR "BM: Chip initialization failed, %s, error = %d\n", __FUNCTION__, result);
-	else {
-		bm_client = client;
-	
-		result = misc_register(&bm_device);
-
-		if (result) 
-			printk(KERN_ERR "BM: Device registration failed, %s, error = %d\n", __FUNCTION__, result);
-	}
+	bm_client = client;
+	data = kzalloc(sizeof(*data), GFP_KERNEL);
 
 	return result;
 } 
 
 static int bm_remove(struct i2c_client *client) 
 {
-	misc_deregister(&bm_device);	
+	misc_deregister(&bm_device);
+	kfree(data);	
 	return 0;
 }
 
